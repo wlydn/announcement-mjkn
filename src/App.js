@@ -285,6 +285,45 @@ function App() {
         }
     }, [announcements]);
 
+    // Persistent Countdown Logic
+    const startCountdownTimer = useCallback((intervalMinutes) => {
+        clearInterval(countdownTimerRef.current);
+        
+        let remainingSeconds = intervalMinutes * 60;
+        const startTime = Date.now();
+        const endTime = startTime + (remainingSeconds * 1000);
+        
+        // Save countdown state to localStorage
+        localStorage.setItem('countdownEndTime', endTime.toString());
+        localStorage.setItem('countdownInterval', intervalMinutes.toString());
+        
+        setCountdownSeconds(remainingSeconds);
+        
+        countdownTimerRef.current = setInterval(() => {
+            const now = Date.now();
+            const timeLeft = Math.max(0, Math.floor((endTime - now) / 1000));
+            
+            setCountdownSeconds(timeLeft);
+            
+            if (timeLeft <= 0) {
+                clearInterval(countdownTimerRef.current);
+                localStorage.removeItem('countdownEndTime');
+                localStorage.removeItem('countdownInterval');
+                
+                if (isPrayerTime()) {
+                    showStatus('Pemutaran ditunda - Sedang waktu shalat. Mengulang hitungan mundur.', 'error');
+                    startCountdownTimer(intervalMinutes); // Ulang hitungan mundur jika waktu shalat
+                } else {
+                    // Play next announcement
+                    const nextIndex = (currentAnnouncementIndex + 1) % announcements.length;
+                    if (announcements.length > 0) {
+                        playAnnouncement(nextIndex);
+                    }
+                }
+            }
+        }, 1000);
+    }, [isPrayerTime, showStatus, currentAnnouncementIndex, announcements.length]);
+
     // Play Announcement
     const playAnnouncement = useCallback((index) => {
         clearInterval(countdownTimerRef.current);
@@ -297,29 +336,7 @@ function App() {
             // Start countdown again with fallback value
             const intervalMinutes = parseInt(document.getElementById('playInterval')?.value || '15');
             setTimeout(() => {
-                clearInterval(countdownTimerRef.current);
-                let remainingSeconds = intervalMinutes * 60;
-                setCountdownSeconds(remainingSeconds);
-                
-                countdownTimerRef.current = setInterval(() => {
-                    setCountdownSeconds(prevSeconds => {
-                        const newSeconds = prevSeconds - 1;
-                        if (newSeconds <= 0) {
-                            clearInterval(countdownTimerRef.current);
-                            // Check prayer time again and either restart countdown or play next
-                            if (isPrayerTime()) {
-                                showStatus('Pemutaran ditunda - Sedang waktu shalat. Mengulang hitungan mundur.', 'error');
-                                playAnnouncement(index); // Try again
-                            } else {
-                                // Play next announcement
-                                const nextIndex = (index + 1) % announcements.length;
-                                playAnnouncement(nextIndex);
-                            }
-                            return 0;
-                        }
-                        return newSeconds;
-                    });
-                }, 1000);
+                startCountdownTimer(intervalMinutes);
             }, 100);
             return;
         }
@@ -337,51 +354,18 @@ function App() {
                     showStatus(`Memainkan pengumuman: ${announcement.name}`, 'success');
                     
                     audioRef.current.onended = () => {
+                        setIsPlaying(false);
                         const intervalMinutes = parseInt(document.getElementById('playInterval')?.value || '15');
-                        let remainingSeconds = intervalMinutes * 60;
-                        setCountdownSeconds(remainingSeconds);
-                        
-                        countdownTimerRef.current = setInterval(() => {
-                            setCountdownSeconds(prevSeconds => {
-                                const newSeconds = prevSeconds - 1;
-                                if (newSeconds <= 0) {
-                                    clearInterval(countdownTimerRef.current);
-                                    if (isPrayerTime()) {
-                                        showStatus('Pemutaran ditunda - Sedang waktu shalat. Mengulang hitungan mundur.', 'error');
-                                        playAnnouncement(index); // Try current again
-                                    } else {
-                                        // Play next announcement
-                                        const nextIndex = (index + 1) % announcements.length;
-                                        playAnnouncement(nextIndex);
-                                    }
-                                    return 0;
-                                }
-                                return newSeconds;
-                            });
-                        }, 1000);
+                        startCountdownTimer(intervalMinutes);
                     };
                 }).catch(error => {
                     showStatus('Gagal memainkan pengumuman: ' + error.message, 'error');
                     const intervalMinutes = parseInt(document.getElementById('playInterval')?.value || '15');
-                    let remainingSeconds = intervalMinutes * 60;
-                    setCountdownSeconds(remainingSeconds);
-                    
-                    countdownTimerRef.current = setInterval(() => {
-                        setCountdownSeconds(prevSeconds => {
-                            const newSeconds = prevSeconds - 1;
-                            if (newSeconds <= 0) {
-                                clearInterval(countdownTimerRef.current);
-                                const nextIndex = (index + 1) % announcements.length;
-                                playAnnouncement(nextIndex);
-                                return 0;
-                            }
-                            return newSeconds;
-                        });
-                    }, 1000);
+                    startCountdownTimer(intervalMinutes);
                 });
             }
         }
-    }, [announcements, isPrayerTime, getCurrentPrayerName, showStatus]);
+    }, [announcements, isPrayerTime, getCurrentPrayerName, showStatus, startCountdownTimer]);
 
     // Auto-play announcements 5 minutes after prayer time
     useEffect(() => {
@@ -401,32 +385,62 @@ function App() {
         return () => clearInterval(prayerCheckInterval);
     }, [canPlayAfterPrayer, announcements, isPlaying, currentAnnouncementIndex, playAnnouncement, showStatus]);
 
-    // Countdown Logic
-    const startCountdownTimer = useCallback((intervalMinutes) => {
-        clearInterval(countdownTimerRef.current);
-        
-        let remainingSeconds = intervalMinutes * 60;
-        setCountdownSeconds(remainingSeconds);
-        
-        countdownTimerRef.current = setInterval(() => {
-            setCountdownSeconds(prevSeconds => {
-                const newSeconds = prevSeconds - 1;
-                if (newSeconds <= 0) {
-                    clearInterval(countdownTimerRef.current);
-                    if (isPrayerTime()) {
-                        showStatus('Pemutaran ditunda - Sedang waktu shalat. Mengulang hitungan mundur.', 'error');
-                        startCountdownTimer(intervalMinutes); // Ulang hitungan mundur jika waktu shalat
-                    } else {
-                        // Play next announcement
-                        const nextIndex = (currentAnnouncementIndex + 1) % announcements.length;
-                        playAnnouncement(nextIndex);
+    // Restore countdown on page load
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const savedEndTime = localStorage.getItem('countdownEndTime');
+            const savedInterval = localStorage.getItem('countdownInterval');
+            
+            if (savedEndTime && savedInterval) {
+                const endTime = parseInt(savedEndTime);
+                const intervalMinutes = parseInt(savedInterval);
+                const now = Date.now();
+                const timeLeft = Math.max(0, Math.floor((endTime - now) / 1000));
+                
+                if (timeLeft > 0) {
+                    // Resume countdown from where it left off
+                    setCountdownSeconds(timeLeft);
+                    
+                    countdownTimerRef.current = setInterval(() => {
+                        const currentTime = Date.now();
+                        const remainingTime = Math.max(0, Math.floor((endTime - currentTime) / 1000));
+                        
+                        setCountdownSeconds(remainingTime);
+                        
+                        if (remainingTime <= 0) {
+                            clearInterval(countdownTimerRef.current);
+                            localStorage.removeItem('countdownEndTime');
+                            localStorage.removeItem('countdownInterval');
+                            
+                            if (isPrayerTime()) {
+                                showStatus('Pemutaran ditunda - Sedang waktu shalat. Mengulang hitungan mundur.', 'error');
+                                startCountdownTimer(intervalMinutes);
+                            } else {
+                                // Play next announcement if available
+                                if (announcements.length > 0) {
+                                    const nextIndex = (currentAnnouncementIndex + 1) % announcements.length;
+                                    playAnnouncement(nextIndex);
+                                }
+                            }
+                        }
+                    }, 1000);
+                    
+                    showStatus(`Melanjutkan hitungan mundur: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`, 'info');
+                } else {
+                    // Countdown has expired while page was closed
+                    localStorage.removeItem('countdownEndTime');
+                    localStorage.removeItem('countdownInterval');
+                    
+                    if (!isPrayerTime() && announcements.length > 0) {
+                        // Auto-play if countdown expired during page reload
+                        setTimeout(() => {
+                            playAnnouncement(currentAnnouncementIndex);
+                        }, 1000);
                     }
-                    return 0;
                 }
-                return newSeconds;
-            });
-        }, 1000);
-    }, [isPrayerTime, showStatus, currentAnnouncementIndex, announcements.length, playAnnouncement]);
+            }
+        }
+    }, [isPrayerTime, showStatus, announcements.length, currentAnnouncementIndex, playAnnouncement, startCountdownTimer]);
 
     // Play Next Announcement
     const playNextAnnouncement = useCallback(() => {
