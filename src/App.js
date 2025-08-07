@@ -60,13 +60,35 @@ function App() {
             prayerTimeObj.setHours(prayerHour, prayerMinute, 0, 0);
             
             const prayerStart = prayerTimeObj.getTime();
-            const prayerEnd = prayerStart + (60 * 60 * 1000); // 1 jam duration
+            const prayerEnd = prayerStart + (30 * 60 * 1000); // 30 menit duration untuk sholat
             
             if (nowTime >= prayerStart && nowTime <= prayerEnd) {
                 return true;
             }
         }
         return false;
+    }, [currentPrayerTimes]);
+
+    // Fungsi baru untuk mengecek apakah sudah 5 menit setelah waktu sholat
+    const canPlayAfterPrayer = useCallback(() => {
+        const now = new Date();
+        const nowTime = now.getTime();
+        
+        for (const [prayer, time] of Object.entries(currentPrayerTimes)) {
+            const [prayerHour, prayerMinute] = time.split(':').map(Number);
+            const prayerTimeObj = new Date();
+            prayerTimeObj.setHours(prayerHour, prayerMinute, 0, 0);
+            
+            const prayerStart = prayerTimeObj.getTime();
+            const prayerEnd = prayerStart + (30 * 60 * 1000); // 30 menit untuk sholat
+            const playAllowedTime = prayerEnd + (5 * 60 * 1000); // 5 menit setelah sholat selesai
+            
+            // Jika sekarang adalah 5 menit setelah sholat selesai
+            if (nowTime >= playAllowedTime && nowTime <= (playAllowedTime + (2 * 60 * 1000))) { // Window 2 menit untuk trigger
+                return { canPlay: true, prayerName: getPrayerName(prayer) };
+            }
+        }
+        return { canPlay: false, prayerName: null };
     }, [currentPrayerTimes]);
 
     const getCurrentPrayerName = useCallback(() => {
@@ -240,26 +262,19 @@ function App() {
                 setCurrentPrayerTimes(JSON.parse(savedPrayerTimes));
             }
 
-            // Check if we need to fetch announcements from Blob
-            const lastFetch = localStorage.getItem('announcementsLastFetch');
-            const now = Date.now();
-            const shouldFetch = !lastFetch || (now - parseInt(lastFetch)) > 5 * 60 * 1000; // 5 minutes cache
-
-            if (shouldFetch) {
-                // Fetch from Blob storage
-                fetchAnnouncementsFromBlob();
-            } else {
-                // Use cached announcements
-                const savedAnnouncements = localStorage.getItem('announcements');
-                if (savedAnnouncements) {
-                    const localAnnouncements = JSON.parse(savedAnnouncements);
-                    setAnnouncements(localAnnouncements);
-                    console.log(`Using cached announcements: ${localAnnouncements.length} files`);
-                } else {
-                    // No cache, fetch from Blob
-                    fetchAnnouncementsFromBlob();
-                }
+            // Always fetch fresh data from Blob storage on page load/reload
+            console.log('Page loaded/reloaded - Fetching fresh data from Vercel Blob storage...');
+            
+            // Load cached announcements first for immediate display
+            const savedAnnouncements = localStorage.getItem('announcements');
+            if (savedAnnouncements) {
+                const localAnnouncements = JSON.parse(savedAnnouncements);
+                setAnnouncements(localAnnouncements);
+                console.log(`Loaded ${localAnnouncements.length} cached announcements for immediate display`);
             }
+            
+            // Then fetch fresh data from Blob storage
+            fetchAnnouncementsFromBlob();
         }
     }, [fetchAnnouncementsFromBlob]);
 
@@ -368,6 +383,24 @@ function App() {
         }
     }, [announcements, isPrayerTime, getCurrentPrayerName, showStatus]);
 
+    // Auto-play announcements 5 minutes after prayer time
+    useEffect(() => {
+        const checkPrayerTimeAndPlay = () => {
+            const afterPrayerCheck = canPlayAfterPrayer();
+            
+            if (afterPrayerCheck.canPlay && announcements.length > 0 && !isPlaying) {
+                // Trigger announcement 5 minutes after prayer ends
+                showStatus(`Waktu ${afterPrayerCheck.prayerName} telah selesai. Memulai pengumuman otomatis.`, 'success');
+                playAnnouncement(currentAnnouncementIndex);
+            }
+        };
+
+        // Check every minute for prayer time trigger
+        const prayerCheckInterval = setInterval(checkPrayerTimeAndPlay, 60000); // Check every minute
+        
+        return () => clearInterval(prayerCheckInterval);
+    }, [canPlayAfterPrayer, announcements, isPlaying, currentAnnouncementIndex, playAnnouncement, showStatus]);
+
     // Countdown Logic
     const startCountdownTimer = useCallback((intervalMinutes) => {
         clearInterval(countdownTimerRef.current);
@@ -407,25 +440,82 @@ function App() {
     }, [announcements, currentAnnouncementIndex, showStatus, playAnnouncement]);
 
     // Delete Announcement
-    const deleteAnnouncement = useCallback((index) => {
+    const deleteAnnouncement = useCallback(async (index) => {
         if (index >= 0 && index < announcements.length) {
-            // Stop playback if the current announcement is deleted
-            if (index === currentAnnouncementIndex && isPlaying) {
-                if (audioRef.current) audioRef.current.pause();
-                setIsPlaying(false);
-                clearInterval(countdownTimerRef.current);
-                setCountdownSeconds(0);
+            const announcementToDelete = announcements[index];
+            
+            try {
+                showStatus('Menghapus pengumuman...', 'info');
+                
+                // Call Vercel Blob delete API
+                const response = await axios.delete('/api/delete', {
+                    data: {
+                        url: announcementToDelete.url,
+                        pathname: announcementToDelete.public_id
+                    },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    timeout: 30000, // 30 seconds timeout
+                });
+
+                console.log('Delete response:', response.data);
+
+                // Stop playback if the current announcement is deleted
+                if (index === currentAnnouncementIndex && isPlaying) {
+                    if (audioRef.current) audioRef.current.pause();
+                    setIsPlaying(false);
+                    clearInterval(countdownTimerRef.current);
+                    setCountdownSeconds(0);
+                }
+                
+                // Remove from local state
+                const newAnnouncements = announcements.filter((_, i) => i !== index);
+                setAnnouncements(newAnnouncements);
+                
+                // Update localStorage
+                localStorage.setItem('announcements', JSON.stringify(newAnnouncements));
+                
+                // Adjust current index if needed
+                if (currentAnnouncementIndex >= newAnnouncements.length) {
+                    setCurrentAnnouncementIndex(0);
+                }
+                
+                showStatus('Pengumuman berhasil dihapus dari Vercel Blob storage', 'success');
+                
+            } catch (error) {
+                console.error('Delete failed:', error);
+                
+                let errorMessage = 'Gagal menghapus pengumuman';
+                
+                if (error.response) {
+                    const serverError = error.response.data;
+                    errorMessage = serverError.message || errorMessage;
+                    
+                    if (serverError.error === 'Missing BLOB_READ_WRITE_TOKEN environment variable') {
+                        errorMessage = 'Konfigurasi Vercel Blob belum diatur. Periksa environment variables.';
+                    } else if (error.response.status === 404) {
+                        errorMessage = 'File tidak ditemukan di storage. Mungkin sudah dihapus sebelumnya.';
+                        // Still remove from local state if file not found in storage
+                        const newAnnouncements = announcements.filter((_, i) => i !== index);
+                        setAnnouncements(newAnnouncements);
+                        localStorage.setItem('announcements', JSON.stringify(newAnnouncements));
+                        if (currentAnnouncementIndex >= newAnnouncements.length) {
+                            setCurrentAnnouncementIndex(0);
+                        }
+                    }
+                    
+                    console.error('Server error details:', serverError);
+                } else if (error.request) {
+                    errorMessage = 'Tidak dapat terhubung ke server. Periksa koneksi internet.';
+                } else if (error.code === 'ECONNABORTED') {
+                    errorMessage = 'Timeout saat menghapus file. Coba lagi.';
+                } else {
+                    errorMessage = error.message || errorMessage;
+                }
+                
+                showStatus(errorMessage, 'error');
             }
-            
-            const newAnnouncements = announcements.filter((_, i) => i !== index);
-            setAnnouncements(newAnnouncements);
-            
-            // Adjust current index if needed
-            if (currentAnnouncementIndex >= newAnnouncements.length) {
-                setCurrentAnnouncementIndex(0);
-            }
-            
-            showStatus('Pengumuman berhasil dihapus', 'success');
         }
     }, [announcements, currentAnnouncementIndex, isPlaying, showStatus]);
 
@@ -561,7 +651,7 @@ function App() {
         <div className="container">
             <header>
                 <h1><i className="fas fa-bullhorn"></i> Pemutaran Pengumuman Otomatis</h1>
-                <p>Putar pengumuman secara periodik dengan dukungan waktu shalat</p>
+                <p>Putar pengumuman secara periodik dengan dukungan waktu shalat - Otomatis play 5 menit setelah adzan</p>
                 <div className="time-display">
                     <span id="currentDate">{currentDate}</span>
                     <span className="separator">•</span>
@@ -582,9 +672,14 @@ function App() {
                             const isActive = now >= prayerTimeObj && now <= prayerEndTime;
 
                             return (
-                                <div key={prayer} className={`prayer-time ${isActive ? 'active' : ''}`}>
+                                <div key={prayer} className={`prayer-time ${isActive ? 'active blinking' : ''}`}>
                                     <span className="prayer-name">{getPrayerName(prayer)}</span>
                                     <span className="prayer-time" data-prayer={prayer}>{time}</span>
+                                    {isActive && (
+                                        <span className="prayer-indicator">
+                                            <i className="fas fa-mosque"></i> Waktu Sholat
+                                        </span>
+                                    )}
                                     {/* <button className="btn-refresh" data-prayer={prayer} title="Perbarui waktu"><i className="fas fa-sync-alt"></i></button> */}
                                 </div>
                             );

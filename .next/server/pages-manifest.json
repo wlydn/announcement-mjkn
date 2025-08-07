@@ -3,5 +3,6 @@
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
   "/": "pages/index.js",
-  "/api/list": "pages/api/list.js"
+  "/api/list": "pages/api/list.js",
+  "/api/upload": "pages/api/upload.js"
 }
