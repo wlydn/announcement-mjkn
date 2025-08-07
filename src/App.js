@@ -80,8 +80,8 @@ function App() {
             prayerTimeObj.setHours(prayerHour, prayerMinute, 0, 0);
             
             const prayerStart = prayerTimeObj.getTime();
-            const prayerEnd = prayerStart + (30 * 60 * 1000); // 30 menit untuk sholat
-            const playAllowedTime = prayerEnd + (5 * 60 * 1000); // 5 menit setelah sholat selesai
+            const prayerEnd = prayerStart + (5 * 60 * 1000); // 5 menit untuk sholat
+            const playAllowedTime = prayerEnd + (3 * 60 * 1000); // 3 menit setelah sholat selesai
             
             // Jika sekarang adalah 5 menit setelah sholat selesai
             if (nowTime >= playAllowedTime && nowTime <= (playAllowedTime + (2 * 60 * 1000))) { // Window 2 menit untuk trigger
