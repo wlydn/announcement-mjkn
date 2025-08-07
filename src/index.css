@@ -1,0 +1,295 @@
+:root {
+    --primary: #3498db;
+    --secondary: #2980b9;
+    --success: #2ecc71;
+    --danger: #e74c3c;
+    --light: #ecf0f1;
+    --dark: #34495e;
+    --gray: #95a5a6;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background-color: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    background-color: var(--primary);
+    color: white;
+    padding: 20px 0;
+    text-align: center;
+    margin-bottom: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    font-size: 2.2rem;
+    margin-bottom: 10px;
+}
+
+.dashboard {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+@media (max-width: 768px) {
+    .dashboard {
+        grid-template-columns: 1fr;
+    }
+}
+
+.card {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card h2 {
+    color: var(--primary);
+    margin-bottom: 15px;
+    font-size: 1.5rem;
+    border-bottom: 2px solid var(--light);
+    padding-bottom: 10px;
+}
+
+.announcement-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+label {
+    font-weight: 600;
+    color: var(--dark);
+}
+
+select, input {
+    padding: 10px;
+    border: 1px solid var(--gray);
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: var(--secondary);
+}
+
+.btn-success {
+    background-color: var(--success);
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #27ae60;
+}
+
+.btn-danger {
+    background-color: var(--danger);
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c0392b;
+}
+
+.prayer-times {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+@media (max-width: 480px) {
+    .prayer-times {
+        grid-template-columns: 1fr;
+    }
+}
+
+.prayer-time {
+    background-color: var(--light);
+    padding: 10px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.prayer-time.active {
+    background-color: var(--primary);
+    color: white;
+}
+
+.prayer-time span {
+    display: block;
+}
+
+.prayer-name {
+    font-weight: 600;
+}
+
+.announcement-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin-top: 20px;
+}
+
+.announcement-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background-color: var(--light);
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.announcement-item.active {
+    border-left: 4px solid var(--primary);
+    background-color: #e1f0fa;
+}
+
+.announcement-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.now-playing {
+    background-color: var(--secondary);
+    color: white;
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 20px;
+    display: none;
+}
+
+.upload-area {
+    border: 2px dashed var(--gray);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    margin-top: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.upload-area:hover {
+    border-color: var(--primary);
+    background-color: rgba(52, 152, 219, 0.05);
+}
+
+.upload-area i {
+    font-size: 3rem;
+    color: var(--primary);
+    margin-bottom: 10px;
+}
+
+.progress {
+    width: 100%;
+    background-color: var(--light);
+    border-radius: 4px;
+    margin-top: 10px;
+    display: none;
+}
+
+.progress-bar {
+    height: 10px;
+    background-color: var(--primary);
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+#audioPlayer {
+    width: 100%;
+    margin-top: 20px;
+    display: none;
+}
+
+.countdown-display {
+    margin-top: 15px;
+    padding: 10px;
+    background: var(--light);
+    border-radius: 4px;
+    text-align: center;
+    font-weight: bold;
+}
+
+#countdownTime {
+    font-size: 1.5rem;
+    color: var(--primary);
+}
+
+.status {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.status.success {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status.error {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.time-display {
+    font-size: 1.2rem;
+    text-align: center;
+    margin: 20px 0;
+    font-weight: 600;
+}
+
+.time-display .separator {
+    margin: 0 15px;
+    font-size: 1.5rem;
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: bold;
+}
+
+footer {
+    text-align: center;
+    margin-top: 30px;
+    padding: 20px;
+    color: var(--gray);
+    font-size: 0.9rem;
+}
