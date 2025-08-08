@@ -63,7 +63,7 @@ export default async function handler(req, res) {
     res.status(500).json({ 
       message: errorMessage,
       error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      details: process.env.NODE_ENV === 'production' ? error.stack : undefined
     });
   }
 }

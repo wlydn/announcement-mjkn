@@ -1,6 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
+// Utility function for retry logic with exponential backoff
+const retryAxiosRequest = async (requestFn, maxRetries = 3, baseDelay = 1000) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await requestFn();
+        } catch (error) {
+            if (attempt === maxRetries) {
+                throw error;
+            }
+            
+            // Only retry on timeout or network errors
+            if (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND' || 
+                error.message.includes('timeout') || error.message.includes('network')) {
+                const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+                console.log(`Request failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                throw error; // Don't retry on non-network errors
+            }
+        }
+    }
+};
+
 function App() {
     // State untuk data aplikasi
     const [announcements, setAnnouncements] = useState([]);
@@ -131,7 +154,7 @@ function App() {
                             const response = await axios.get(
                                 `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`,
                                 {
-                                    timeout: 10000, // 10 second timeout
+                                    timeout: 30000, // Increased to 30 seconds timeout
                                     headers: {
                                         'Accept': 'application/json',
                                     }
@@ -214,12 +237,17 @@ function App() {
     const fetchAnnouncementsFromBlob = useCallback(async () => {
         try {
             console.log('Fetching announcements from Vercel Blob storage...');
-            const response = await axios.get('/api/list', {
-                timeout: 10000,
-                headers: {
-                    'Accept': 'application/json',
-                }
-            });
+            
+            const response = await retryAxiosRequest(
+                () => axios.get('/api/list', {
+                    timeout: 30000, // Increased to 30 seconds timeout
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                }),
+                3, // 3 retries
+                1000 // 1 second base delay
+            );
 
             if (response.data && response.data.announcements) {
                 const blobAnnouncements = response.data.announcements;
@@ -241,14 +269,22 @@ function App() {
         } catch (error) {
             console.error('Error fetching announcements from Blob:', error);
             
+            // Enhanced error handling
+            let errorMessage = 'Gagal memuat pengumuman dari storage';
+            if (error.code === 'ECONNABORTED') {
+                errorMessage = 'Timeout saat memuat pengumuman. Menggunakan data lokal.';
+            } else if (error.message.includes('network')) {
+                errorMessage = 'Masalah jaringan. Menggunakan data lokal.';
+            }
+            
             // Fallback to localStorage if Blob fetch fails
             const savedAnnouncements = localStorage.getItem('announcements');
             if (savedAnnouncements) {
                 const localAnnouncements = JSON.parse(savedAnnouncements);
                 setAnnouncements(localAnnouncements);
-                showStatus(`Menggunakan ${localAnnouncements.length} pengumuman tersimpan lokal`, 'info');
+                showStatus(`${errorMessage} - Menggunakan ${localAnnouncements.length} pengumuman tersimpan lokal`, 'info');
             } else {
-                showStatus('Gagal memuat pengumuman dari storage', 'error');
+                showStatus(errorMessage, 'error');
             }
         }
     }, [showStatus]);
@@ -461,17 +497,21 @@ function App() {
             try {
                 showStatus('Menghapus pengumuman...', 'info');
                 
-                // Call Vercel Blob delete API
-                const response = await axios.delete('/api/delete', {
-                    data: {
-                        url: announcementToDelete.url,
-                        pathname: announcementToDelete.public_id
-                    },
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    timeout: 30000, // 30 seconds timeout
-                });
+                // Call Vercel Blob delete API with retry logic
+                const response = await retryAxiosRequest(
+                    () => axios.delete('/api/delete', {
+                        data: {
+                            url: announcementToDelete.url,
+                            pathname: announcementToDelete.public_id
+                        },
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        timeout: 30000, // 30 seconds timeout
+                    }),
+                    2, // 2 retries for delete operations
+                    1500 // 1.5 second base delay
+                );
 
                 console.log('Delete response:', response.data);
 
@@ -523,7 +563,7 @@ function App() {
                 } else if (error.request) {
                     errorMessage = 'Tidak dapat terhubung ke server. Periksa koneksi internet.';
                 } else if (error.code === 'ECONNABORTED') {
-                    errorMessage = 'Timeout saat menghapus file. Coba lagi.';
+                    errorMessage = 'Timeout saat menghapus file. Mencoba lagi...';
                 } else {
                     errorMessage = error.message || errorMessage;
                 }
@@ -545,23 +585,33 @@ function App() {
             return;
         }
         
-        playAnnouncement(currentAnnouncementIndex);
-        showStatus(`Pemutaran dimulai`, 'success');
-    }, [announcements, isPlaying, playAnnouncement, currentAnnouncementIndex, showStatus]);
-
-    // Stop Playback
-    const stopPlayback = useCallback(() => {
-        if (!isPlaying) {
-            showStatus('Tidak ada pemutaran yang berjalan', 'error');
+        if (countdownSeconds > 0) {
+            showStatus('Hitungan mundur sedang berjalan. Tunggu hingga selesai atau hentikan terlebih dahulu.', 'error');
             return;
         }
         
+        playAnnouncement(currentAnnouncementIndex);
+        showStatus(`Pemutaran dimulai`, 'success');
+    }, [announcements, isPlaying, countdownSeconds, playAnnouncement, currentAnnouncementIndex, showStatus]);
+
+    // Stop Playback
+    const stopPlayback = useCallback(() => {
+        // Stop current playback if running
+        if (isPlaying && audioRef.current) {
+            audioRef.current.pause();
+            setIsPlaying(false);
+        }
+        
+        // Stop countdown timer
         clearInterval(countdownTimerRef.current);
         setCountdownSeconds(0);
-        if (audioRef.current) audioRef.current.pause();
-        setIsPlaying(false);
         
-        showStatus('Pemutaran dihentikan', 'success');
+        // Clear countdown persistence data
+        localStorage.removeItem('countdownEndTime');
+        localStorage.removeItem('countdownInterval');
+        localStorage.removeItem('isPlaybackActive');
+        
+        showStatus('Pemutaran dan hitungan mundur dihentikan', 'success');
     }, [isPlaying, showStatus]);
 
     // Handle File Upload
@@ -664,8 +714,8 @@ function App() {
     return (
         <div className="container">
             <header>
-                <h1><i className="fas fa-bullhorn"></i> Pemutaran Pengumuman Otomatis</h1>
-                <p>Putar pengumuman secara periodik dengan dukungan waktu shalat - Otomatis play 5 menit setelah adzan</p>
+                <h1><i className="fas fa-hospital"></i> RAYHAN HOSPITAL</h1>
+                <p>Putar pengumuman secara periodik dengan dukungan waktu shalat</p>
                 <div className="time-display">
                     <span id="currentDate">{currentDate}</span>
                     <span className="separator">•</span>
@@ -694,7 +744,6 @@ function App() {
                                             <i className="fas fa-mosque"></i> Waktu Sholat
                                         </span>
                                     )}
-                                    {/* <button className="btn-refresh" data-prayer={prayer} title="Perbarui waktu"><i className="fas fa-sync-alt"></i></button> */}
                                 </div>
                             );
                         })}
@@ -729,6 +778,8 @@ function App() {
                         <div className="control-group">
                             <label htmlFor="playInterval">Interval Pemutaran (menit)</label>
                             <select id="playInterval" defaultValue="15">
+                                <option value="1">1 menit</option>
+                                <option value="5">5 menit</option>
                                 <option value="15">15 menit</option>
                                 <option value="30">30 menit</option>
                                 <option value="60">60 menit</option>
